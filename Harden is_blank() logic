@@ -1,0 +1,60 @@
+# models.py
+
+class FinancialAidRequest:
+    def __init__(self, household_income=None, extra_explaination=None, dollar_amount=None, percent=None):
+        self.household_income = household_income
+        self.extra_explaination = extra_explaination  # keep field name as-is to avoid migration
+        self.dollar_amount = dollar_amount
+        self.percent = percent
+        self.user_error = None
+
+    def is_blank(self) -> bool:
+        """
+        Returns True if the application is effectively blank/incomplete.
+        A request is considered blank if BOTH fields are missing/empty.
+        """
+        income_blank = self.household_income in (None, "", 0)
+        explanation_blank = self.extra_explaination in (None, "")
+
+        return income_blank and explanation_blank
+
+    def approve(self, approve_blanks: bool = False):
+        """
+        Approve this request, respecting approve_blanks flag and capturing validation errors.
+        """
+        if self.is_blank() and not approve_blanks:
+            # Explicitly skip approval for blank requests
+            return None
+
+        try:
+            grant = FinancialAidGrant.finalize(self)
+        except (ValueError, TypeError) as exc:
+            # Capture detailed error so admins can see what went wrong.
+            self.user_error = str(exc)
+            # Optionally: log error or send to Sentry/etc.
+            return None
+
+        return grant
+
+
+class FinancialAidGrant:
+    @classmethod
+    def finalize(cls, req: FinancialAidRequest) -> "FinancialAidGrant":
+        """
+        Accounting‑critical path – validate inputs before creating the grant.
+        """
+        # Minimal example validation; in real code this likely does more.
+        if req.dollar_amount is not None and not isinstance(req.dollar_amount, (int, float)):
+            raise ValueError("dollar_amount must be numeric")
+
+        if req.percent is not None:
+            if not isinstance(req.percent, (int, float)):
+                raise TypeError("percent must be numeric")
+            if req.percent < 0 or req.percent > 100:
+                raise ValueError("percent must be between 0 and 100")
+
+        grant = cls()
+        grant.request = req
+        grant.amount = req.dollar_amount
+        grant.percent = req.percent
+        return grant
