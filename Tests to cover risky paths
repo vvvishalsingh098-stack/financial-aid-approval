@@ -1,0 +1,92 @@
+# tests/test_finaid_approve_module.py
+
+import pytest
+
+from myapp.models import FinancialAidRequest, FinancialAidGrant
+from myapp.finaidapprovemodule import approve_request
+
+
+def test_is_blank_true_when_both_missing():
+    req = FinancialAidRequest(household_income=None, extra_explaination=None)
+
+    assert req.is_blank() is True
+
+
+def test_is_blank_false_when_income_present():
+    req = FinancialAidRequest(household_income=50000, extra_explaination=None)
+
+    assert req.is_blank() is False
+
+
+def test_is_blank_false_when_explanation_present():
+    req = FinancialAidRequest(household_income=None, extra_explaination="Parent is unemployed")
+
+    assert req.is_blank() is False
+
+
+def test_approve_skips_blank_when_flag_false():
+    req = FinancialAidRequest(household_income=None, extra_explaination=None, dollar_amount=1000)
+
+    result = approve_request(req, approve_blanks=False)
+
+    assert result["status"] == "skipped_blank"
+    assert result["grant"] is None
+    assert req.user_error is None
+
+
+def test_approve_allows_blank_when_flag_true():
+    req = FinancialAidRequest(household_income=None, extra_explaination=None, dollar_amount=1000)
+
+    result = approve_request(req, approve_blanks=True)
+
+    assert result["status"] == "ok"
+    assert isinstance(result["grant"], FinancialAidGrant)
+    assert result["grant"].amount == 1000
+
+
+def test_invalid_dollar_amount_sets_user_error_and_returns_none():
+    req = FinancialAidRequest(
+        household_income=10000,
+        extra_explaination="Valid explanation",
+        dollar_amount="not-a-number",  # invalid
+    )
+
+    result = approve_request(req, approve_blanks=True)
+
+    assert result["status"] == "error"
+    assert "dollar_amount must be numeric" in result["message"]
+    assert result["grant"] is None
+    assert req.user_error == "dollar_amount must be numeric"
+
+
+@pytest.mark.parametrize("percent", [-10, 150])
+def test_invalid_percent_range_sets_user_error(percent):
+    req = FinancialAidRequest(
+        household_income=10000,
+        extra_explaination="Valid explanation",
+        dollar_amount=1000,
+        percent=percent,
+    )
+
+    result = approve_request(req, approve_blanks=True)
+
+    assert result["status"] == "error"
+    assert "percent must be between 0 and 100" in result["message"]
+    assert result["grant"] is None
+    assert req.user_error == "percent must be between 0 and 100"
+
+
+def test_non_numeric_percent_sets_user_error():
+    req = FinancialAidRequest(
+        household_income=10000,
+        extra_explaination="Valid explanation",
+        dollar_amount=1000,
+        percent="fifty",  # invalid type
+    )
+
+    result = approve_request(req, approve_blanks=True)
+
+    assert result["status"] == "error"
+    assert "percent must be numeric" in result["message"]
+    assert result["grant"] is None
+    assert req.user_error == "percent must be numeric"
