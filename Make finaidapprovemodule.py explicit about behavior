@@ -1,0 +1,21 @@
+# finaidapprovemodule.py
+
+from .models import FinancialAidRequest
+
+def approve_request(req: FinancialAidRequest, approve_blanks: bool = False):
+    """
+    Admin‑facing approve endpoint.
+
+    If approve_blanks is False, requests considered blank by is_blank() are skipped.
+    Any accounting validation errors are attached to req.user_error.
+    """
+    grant = req.approve(approve_blanks=approve_blanks)
+
+    if req.user_error:
+        # Surface error to the admin UI instead of silently swallowing.
+        return {"status": "error", "message": req.user_error, "grant": None}
+
+    if grant is None and req.is_blank() and not approve_blanks:
+        return {"status": "skipped_blank", "message": "Blank/incomplete application skipped", "grant": None}
+
+    return {"status": "ok", "message": "Approved", "grant": grant}
